@@ -31,8 +31,13 @@ enregistrée qu'après relecture du statut chez Stripe par
 
 ```bash
 cp .env.example .env.local     # puis renseigner la clé Clerk pk_live_…
-npm install --legacy-peer-deps
+npm install
 ```
+
+`react-dom` est figé sur la version exacte de `react` (19.2.3). Il ne sert pas
+à une app native, mais `@clerk/clerk-expo` le déclare en peer dependency : npm
+y installerait sinon la dernière version, qui exige un `react` plus récent que
+celui figé par Expo — et le `npm ci` du serveur de build échoue sur ce conflit.
 
 `.env.local` sert au développement local. Pour les builds EAS, les mêmes
 valeurs sont déclarées dans `eas.json` : `.env.local` étant ignoré par git, il
