@@ -6,7 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "scheme": "recyccaisse",
     "ios": {
       "supportsTablet": true,
@@ -36,6 +35,14 @@
     },
     "plugins": [
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Scanner le QR code d'un article de la vitrine.",
@@ -56,7 +63,9 @@
           "bluetoothPeripheralPermission": "Se connecter au terminal de paiement.",
           "bluetoothAlwaysUsagePermission": "Se connecter au terminal de paiement."
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-build-properties"
     ],
     "extra": {
       "eas": {
