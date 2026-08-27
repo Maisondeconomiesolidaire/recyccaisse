@@ -3,12 +3,20 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@clerk/clerk-expo": "^2.20.0",
+    "@stripe/stripe-terminal-react-native": "^0.0.1-beta.32",
+    "convex": "^1.45.0",
     "expo": "~57.0.17",
+    "expo-camera": "~57.0.4",
+    "expo-location": "~57.0.14",
+    "expo-secure-store": "~57.0.2",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0"
   },
   "devDependencies": {
+    "@types/node": "^26.4.0",
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
   },
