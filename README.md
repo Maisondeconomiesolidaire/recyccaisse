@@ -34,6 +34,12 @@ cp .env.example .env.local     # puis renseigner la clé Clerk pk_live_…
 npm install --legacy-peer-deps
 ```
 
+`.env.local` sert au développement local. Pour les builds EAS, les mêmes
+valeurs sont déclarées dans `eas.json` : `.env.local` étant ignoré par git, il
+n'est pas envoyé au serveur de build, et l'app démarrerait sans backend. Les
+deux valeurs concernées sont publiques par nature (elles voyagent de toute
+façon dans l'APK) ; la clé secrète Stripe, elle, ne quitte jamais Convex.
+
 Le SDK Terminal contient du code natif : **Expo Go ne suffit pas**, il faut un
 *development build*.
 

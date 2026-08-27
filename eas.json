@@ -1,0 +1,21 @@
+{
+  "cli": { "version": ">= 5.9.0", "appVersionSource": "remote" },
+  "build": {
+    "preview": {
+      "//": "APK installable directement sur la tablette, sans passer par le Play Store.",
+      "android": { "buildType": "apk" },
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://hip-marten-394.eu-west-1.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuZ3JvdXBlbWVzLmZyJA"
+      }
+    },
+    "production": {
+      "android": { "buildType": "app-bundle" },
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://hip-marten-394.eu-west-1.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuZ3JvdXBlbWVzLmZyJA"
+      }
+    }
+  }
+}
