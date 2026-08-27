@@ -30,13 +30,17 @@
         "android.permission.CAMERA",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.BLUETOOTH_SCAN"
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ]
     },
     "plugins": [
       [
         "expo-camera",
-        { "cameraPermission": "Scanner le QR code d'un article de la vitrine." }
+        {
+          "cameraPermission": "Scanner le QR code d'un article de la vitrine.",
+          "recordAudioAndroid": false
+        }
       ],
       [
         "expo-location",
@@ -55,7 +59,10 @@
       ]
     ],
     "extra": {
-      "eas": { "projectId": "" }
-    }
+      "eas": {
+        "projectId": "59b8ebd2-636e-4113-8ef7-afea455d785d"
+      }
+    },
+    "owner": "frenchge"
   }
 }
