@@ -66,6 +66,12 @@ Installer l'APK obtenu sur la tablette, puis :
 3. appuyer sur **Connecter** dans la barre du haut, WisePad 3 allumé à moins
    d'un mètre.
 
+⚠️ **N'appairez pas le lecteur dans les réglages Bluetooth d'Android.** Stripe
+est formel : un lecteur appairé au système devient invisible pour le SDK, donc
+pour l'application. S'il y figure déjà, choisissez « Oublier cet appareil »
+avant de réessayer. C'est l'app qui gère l'appairage, y compris la
+confirmation du code à six chiffres exigée depuis novembre 2025.
+
 ## Prérequis côté Stripe
 
 - Un **emplacement Terminal** doit exister sur le compte

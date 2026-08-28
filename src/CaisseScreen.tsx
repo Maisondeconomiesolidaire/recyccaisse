@@ -273,13 +273,18 @@ function ReaderBar({
   return (
     <View
       style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
         paddingHorizontal: 20,
         paddingVertical: 12,
         borderBottomWidth: 1,
         borderBottomColor: theme.border,
+        gap: 8,
+      }}
+    >
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
       }}
     >
       <View
@@ -314,6 +319,16 @@ function ReaderBar({
       <Pressable onPress={onSignOut} style={{ paddingHorizontal: 8, paddingVertical: 8 }}>
         <Text style={{ color: theme.muted, fontSize: 13 }}>Quitter</Text>
       </Pressable>
+    </View>
+
+    {/* La raison d'un échec doit s'afficher : « non connecté » sans explication
+        laissait chercher dans le vide. */}
+    {reader.progress ? (
+      <Text style={{ color: theme.brand, fontSize: 13 }}>{reader.progress}</Text>
+    ) : null}
+    {reader.error ? (
+      <Text style={{ color: theme.danger, fontSize: 13, lineHeight: 19 }}>{reader.error}</Text>
+    ) : null}
     </View>
   );
 }
