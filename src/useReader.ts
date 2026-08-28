@@ -119,13 +119,32 @@ export function useReader() {
         );
       }
 
-      const discovery = await discoverReaders({ discoveryMethod: "bluetoothScan", timeout: 20 });
-      if (discovery.error) throw new Error(discovery.error.message);
+      // Le scan tourne en arrière-plan : on se connecte au PREMIER lecteur
+      // annoncé, sans attendre la fin de la recherche. Attendre le verdict du
+      // scan complet, c'était s'exposer à son délai d'expiration alors que le
+      // lecteur était déjà là.
+      let discoveryError: string | null = null;
+      void discoverReaders({ discoveryMethod: "bluetoothScan", timeout: 60 }).then(
+        (result) => {
+          if (result.error) discoveryError = result.error.message;
+        },
+        (caught: unknown) => {
+          discoveryError = caught instanceof Error ? caught.message : String(caught);
+        },
+      );
 
       const reader = await waitForReader(readers);
       if (!reader) {
         throw new Error(
-          "Aucun lecteur trouvé. Vérifiez que le WisePad 3 est allumé, à moins d'un mètre, et qu'il n'est PAS appairé dans les réglages Bluetooth d'Android : un lecteur appairé au système est invisible pour l'application.",
+          [
+            "Aucun lecteur détecté.",
+            discoveryError ? `Stripe indique : ${discoveryError}.` : "",
+            "À vérifier, dans cet ordre : le WisePad 3 est allumé (appuyez sur le bouton pour le sortir de veille) ;",
+            "il ne figure PAS dans les appareils appairés du Bluetooth Android — un lecteur appairé au système est invisible pour l'application ;",
+            "il est à moins d'un mètre ; sa batterie est chargée.",
+          ]
+            .filter(Boolean)
+            .join(" "),
         );
       }
 
@@ -149,7 +168,7 @@ export function useReader() {
 /** Attend qu'un lecteur apparaisse dans les résultats publiés par le SDK. */
 async function waitForReader(
   readers: { current: Reader.Type[] },
-  attempts = 40,
+  attempts = 120,
 ): Promise<Reader.Type | undefined> {
   for (let index = 0; index < attempts; index++) {
     const [first] = readers.current;

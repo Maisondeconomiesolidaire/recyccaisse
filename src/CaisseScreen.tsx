@@ -299,7 +299,10 @@ function ReaderBar({
         {connected
           ? `Lecteur ${reader.connectedReader?.serialNumber ?? ""}`
           : reader.status === "connecting"
-            ? "Recherche du lecteur…"
+            ? // Le compte de lecteurs repérés dit si le scan « voit » quelque
+              // chose : sans lui, une recherche infructueuse et un problème de
+              // permissions se ressemblent.
+              `Recherche du lecteur… ${reader.found.length} repéré${reader.found.length > 1 ? "s" : ""}`
             : "Lecteur non connecté"}
       </Text>
       {!connected ? (
