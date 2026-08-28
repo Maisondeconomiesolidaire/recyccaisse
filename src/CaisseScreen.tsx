@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useStripeTerminal } from "@stripe/stripe-terminal-react-native";
-import { useAction, useConvex, useQuery } from "convex/react";
+import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import { useAuth } from "@clerk/clerk-expo";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -46,6 +46,9 @@ export function CaisseScreen() {
   const { retrievePaymentIntent, collectPaymentMethod, confirmPaymentIntent } =
     useStripeTerminal();
   const startPayment = useAction(api.terminal.startPayment);
+  // L'écran de la vitrine suit l'encaissement : le client voit sur la fiche ce
+  // qui se joue sur le lecteur, qu'il n'a pas en main.
+  const reportKioskPayment = useMutation(api.terminal.reportKioskPayment);
   const finalizePayment = useAction(api.terminal.finalizePayment);
 
   const [permission, requestPermission] = useCameraPermissions();
@@ -119,6 +122,9 @@ export function CaisseScreen() {
       setStep("payment");
       setBusy("payment");
       setError(null);
+      void reportKioskPayment({ articleId: article._id, status: "en_cours" }).catch(
+        () => undefined,
+      );
       try {
         const prepared = await startPayment({
           articleId: article._id,
@@ -143,9 +149,18 @@ export function CaisseScreen() {
           draftId: prepared.draftId,
           paymentIntentId: prepared.paymentIntentId,
         });
+        void reportKioskPayment({ articleId: article._id, status: "payee" }).catch(
+          () => undefined,
+        );
         setStep("done");
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Paiement refusé.");
+        const message = caught instanceof Error ? caught.message : "Paiement refusé.";
+        setError(message);
+        void reportKioskPayment({
+          articleId: article._id,
+          status: "refusee",
+          message,
+        }).catch(() => undefined);
         setStep("customer");
       } finally {
         setBusy(null);
@@ -157,6 +172,7 @@ export function CaisseScreen() {
       confirmPaymentIntent,
       finalizePayment,
       reader.connectedReader,
+      reportKioskPayment,
       retrievePaymentIntent,
       startPayment,
     ],

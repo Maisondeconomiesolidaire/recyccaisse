@@ -1468,7 +1468,14 @@ export function btSubFamilies(category: string, family: string) {
 }
 
 const UNITS = ["unité", "m²", "m³", "ml", "kg", "tonne", "palette", "sac", "lot"];
-const CONDITIONS = ["Neuf", "Déstockage", "Très bon état", "Bon état", "À rénover"];
+const CONDITIONS = [
+  "Neuf",
+  "Déstockage",
+  "Reconditionné",
+  "Très bon état",
+  "Bon état",
+  "À reconditionner",
+];
 
 
 /** Appel OpenAI en JSON strict, partagé par les deux passes du classement. */
@@ -1955,7 +1962,7 @@ export const importMaterials = mutation({
     if (rows.length > 500) throw new ConvexError("500 lignes au maximum par import.");
 
     const units = ["unité", "m²", "m³", "ml", "kg", "tonne", "palette", "sac", "lot"];
-    const conditions = ["Neuf", "Déstockage", "Très bon état", "Bon état", "À rénover"];
+    const conditions = CONDITIONS;
     const now = Date.now();
     const errors: Array<{ line: number; reason: string }> = [];
     let imported = 0;

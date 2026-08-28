@@ -226,8 +226,12 @@ export const btUnit = v.union(
 export const btCondition = v.union(
   v.literal("Neuf"),
   v.literal("Déstockage"),
+  v.literal("Reconditionné"),
   v.literal("Très bon état"),
   v.literal("Bon état"),
+  v.literal("À reconditionner"),
+  /** @deprecated Remplacé par « À reconditionner ». Conservé pour les fiches
+   *  créées avant le changement : retirer la valeur les rendrait invalides. */
   v.literal("À rénover"),
 );
 
@@ -2730,6 +2734,21 @@ export default defineSchema(
     .index("by_client", ["clientId"])
     .index("by_material", ["materialId"])
     .index("by_createdAt", ["createdAt"]),
+
+  /**
+   * Dernier encaissement tenté au terminal pour un article de la vitrine.
+   *
+   * L'écran du kiosque n'a aucun moyen de savoir ce qui se passe sur le
+   * lecteur, tenu par l'équipe : cette trace lui sert d'accusé de réception.
+   * Une ligne par article, réécrite à chaque tentative.
+   */
+  kioskTerminalPayments: defineTable({
+    articleId: v.id("articles"),
+    status: v.union(v.literal("en_cours"), v.literal("payee"), v.literal("refusee")),
+    /** Message d'échec de Stripe, affiché tel quel au client. */
+    message: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_article", ["articleId"]),
 
   /** QR codes imprimés à l'avance, collés sur les matériaux à leur arrivée. */
   btQrCodes: defineTable({
