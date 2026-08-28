@@ -1753,6 +1753,35 @@ export const setOutcome = mutation({
   },
 });
 
+
+/**
+ * Vente encaissée au terminal, en boutique : les deux étapes du parcours
+ * boutique sont franchies d'un coup.
+ *
+ * Le paiement est fait ET l'article part avec le client — il n'y a pas de
+ * retrait à attendre, contrairement à une commande payée en ligne. La demande
+ * est donc close et gagnée dans la foulée.
+ */
+export const completeTerminalSale = internalMutation({
+  args: { requestId: v.id("requests"), by: v.optional(v.string()) },
+  handler: async (ctx, { requestId, by }) => {
+    const request = await ctx.db.get(requestId);
+    if (!request) throw new Error("Demande introuvable.");
+    const steps = request.processSteps ?? [];
+    const now = Date.now();
+    await ctx.db.patch(requestId, {
+      completedSteps: steps.length,
+      outcome: "gagnee",
+      processLog: steps.map((_, index) => ({
+        step: index,
+        by: by?.trim() || "Caisse (terminal)",
+        at: now,
+      })),
+      updatedAt: now,
+    });
+  },
+});
+
 export const deleteForever = mutation({
   args: { id: v.id("requests") },
   handler: async (ctx, { id }) => {

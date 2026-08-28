@@ -264,6 +264,23 @@ export const knownCustomer = query({
   },
 });
 
+
+/** Article et son pendant dans le catalogue Stripe, pour l'encaissement. */
+export const articleForCharge = internalQuery({
+  args: { articleId: v.id("articles") },
+  handler: async (ctx, { articleId }) => {
+    const article = await ctx.db.get(articleId);
+    if (!article) return null;
+    return {
+      title: article.title,
+      price: article.price,
+      category: article.category,
+      stripeProductId: article.stripeProductId ?? null,
+      stripePriceId: article.stripePriceId ?? null,
+    };
+  },
+});
+
 /**
  * Prépare l'encaissement : verrouille le montant et ouvre un PaymentIntent
  * `card_present` que le SDK Terminal présentera au lecteur.
@@ -319,6 +336,14 @@ export const startPayment = action({
     }
 
     const amount = Math.round(draft.total * 100);
+    // L'article vendu voyage avec le paiement : sans lui, le Dashboard Stripe
+    // n'affiche qu'un montant, impossible à rapprocher d'un objet. Le
+    // PaymentIntent n'accepte pas de lignes de commande — c'est la description
+    // et les métadonnées qui portent l'information, dont l'identifiant du
+    // produit du catalogue Stripe quand l'article y est synchronisé.
+    const article = await ctx.runQuery(internal.terminal.articleForCharge, {
+      articleId: args.articleId,
+    });
     const intent = await stripeRequest<{ id: string; client_secret: string }>(
       "payment_intents",
       secretKey,
@@ -328,9 +353,16 @@ export const startPayment = action({
         "payment_method_types[0]": "card_present",
         capture_method: "automatic",
         receipt_email: email,
-        description: "Article de la recyclerie",
+        description: article?.title ?? "Article de la recyclerie",
         "metadata[draftId]": draft.draftId,
         "metadata[source]": "recycapp-terminal",
+        "metadata[articleId]": String(args.articleId),
+        ...(article?.title ? { "metadata[articleTitle]": article.title } : {}),
+        ...(article?.category ? { "metadata[articleCategory]": article.category } : {}),
+        ...(article?.stripeProductId
+          ? { "metadata[stripeProductId]": article.stripeProductId }
+          : {}),
+        ...(article?.stripePriceId ? { "metadata[stripePriceId]": article.stripePriceId } : {}),
       },
     );
 
@@ -389,6 +421,10 @@ export const finalizePayment = action({
         stripePaymentIntentId: intent.id,
       },
     );
+
+    // Vente en boutique : le client repart avec l'article, il n'y a pas de
+    // retrait à attendre comme pour une commande en ligne.
+    await ctx.runMutation(internal.requests.completeTerminalSale, { requestId });
 
     // Le compte client est un plus : son échec ne remet pas en cause la vente.
     let accountCreated = false;
