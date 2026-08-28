@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useStripeTerminal } from "@stripe/stripe-terminal-react-native";
-import { useAction, useConvex } from "convex/react";
+import { useAction, useConvex, useQuery } from "convex/react";
 import { useAuth } from "@clerk/clerk-expo";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -98,27 +98,6 @@ export function CaisseScreen() {
     },
     [busy, convex, step],
   );
-
-  /** Reprend les coordonnées d'un client connu, pour ne pas les ressaisir. */
-  const lookupCustomer = useCallback(async () => {
-    setBusy("lookup");
-    setError(null);
-    try {
-      const known = await convex.query(api.terminal.knownCustomer, { email: email.trim() });
-      if (!known) {
-        setError("Aucun client connu à cette adresse. Utilisez « Nouveau client ».");
-        return;
-      }
-      setFirstName(known.firstName);
-      setLastName(known.lastName);
-      setPhone(known.phone);
-      await pay(known.email, known.firstName, known.lastName, known.phone);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Recherche impossible.");
-    } finally {
-      setBusy(null);
-    }
-  }, [convex, email]);
 
   /**
    * Encaissement : le montant est verrouillé côté serveur, le lecteur collecte
@@ -216,7 +195,9 @@ export function CaisseScreen() {
                 phone={phone}
                 setPhone={setPhone}
                 busy={busy}
-                onExisting={() => void lookupCustomer()}
+                onPick={(customer) =>
+                  void pay(customer.email, customer.firstName, customer.lastName, customer.phone)
+                }
                 onNew={() => void pay(email.trim(), firstName.trim(), lastName.trim(), phone.trim())}
               />
             ) : null}
@@ -418,7 +399,7 @@ function CustomerStep({
   phone,
   setPhone,
   busy,
-  onExisting,
+  onPick,
   onNew,
 }: {
   mode: "existing" | "new" | null;
@@ -432,7 +413,12 @@ function CustomerStep({
   phone: string;
   setPhone: (value: string) => void;
   busy: string | null;
-  onExisting: () => void;
+  onPick: (customer: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+  }) => void;
   onNew: () => void;
 }) {
   if (!mode) {
@@ -444,6 +430,8 @@ function CustomerStep({
     );
   }
 
+  if (mode === "existing") return <CustomerSearch busy={busy} onPick={onPick} />;
+
   return (
     <View style={{ gap: 14 }}>
       <Field
@@ -454,29 +442,96 @@ function CustomerStep({
         keyboardType="email-address"
         placeholder="client@exemple.fr"
       />
-      {mode === "new" ? (
-        <>
-          <Field label="Prénom" value={firstName} onValue={setFirstName} placeholder="Jean" />
-          <Field label="Nom" value={lastName} onValue={setLastName} placeholder="Dupont" />
-          <Field
-            label="Téléphone"
-            value={phone}
-            onValue={setPhone}
-            keyboardType="phone-pad"
-            placeholder="06 12 34 56 78"
-          />
-        </>
-      ) : null}
-
+      <Field label="Prénom" value={firstName} onValue={setFirstName} placeholder="Jean" />
+      <Field label="Nom" value={lastName} onValue={setLastName} placeholder="Dupont" />
+      <Field
+        label="Téléphone"
+        value={phone}
+        onValue={setPhone}
+        keyboardType="phone-pad"
+        placeholder="06 12 34 56 78"
+      />
       <Button
         label={busy ? "Préparation…" : "Encaisser"}
-        onPress={mode === "existing" ? onExisting : onNew}
-        disabled={
-          Boolean(busy) ||
-          !email.trim() ||
-          (mode === "new" && (!firstName.trim() || !lastName.trim()))
-        }
+        onPress={onNew}
+        disabled={Boolean(busy) || !email.trim() || !firstName.trim() || !lastName.trim()}
       />
+    </View>
+  );
+}
+
+/**
+ * Recherche d'un client existant, par nom, prénom, email ou téléphone.
+ *
+ * Saisir une adresse exacte devant un client qui attend est le meilleur moyen
+ * de créer un doublon : on cherche donc largement et on choisit dans la liste.
+ */
+function CustomerSearch({
+  busy,
+  onPick,
+}: {
+  busy: string | null;
+  onPick: (customer: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+  }) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const results = useQuery(
+    api.terminal.searchCustomers,
+    query.trim().length >= 2 ? { query: query.trim() } : "skip",
+  );
+
+  return (
+    <View style={{ gap: 12 }}>
+      <Field
+        label="Rechercher un client"
+        value={query}
+        onValue={setQuery}
+        autoFocus
+        autoCapitalize="none"
+        placeholder="Nom, prénom, email ou téléphone"
+      />
+
+      {query.trim().length < 2 ? (
+        <Text style={{ color: theme.muted, fontSize: 14 }}>
+          Saisissez au moins deux caractères.
+        </Text>
+      ) : results === undefined ? (
+        <ActivityIndicator color={theme.brand} />
+      ) : results.length === 0 ? (
+        <Text style={{ color: theme.muted, fontSize: 14 }}>
+          Aucun client trouvé. Revenez en arrière pour en créer un.
+        </Text>
+      ) : (
+        <View style={{ gap: 8 }}>
+          {results.map((customer) => (
+            <Pressable
+              key={`${customer.email}-${customer.lastName}-${customer.firstName}`}
+              onPress={() => onPick(customer)}
+              disabled={Boolean(busy)}
+              style={{
+                backgroundColor: theme.surface,
+                borderWidth: 1,
+                borderColor: theme.border,
+                borderRadius: 14,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                opacity: busy ? 0.5 : 1,
+              }}
+            >
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: "600" }}>
+                {`${customer.firstName} ${customer.lastName}`.trim() || "Sans nom"}
+              </Text>
+              <Text style={{ color: theme.muted, fontSize: 13, marginTop: 2 }}>
+                {[customer.email, customer.phone].filter(Boolean).join(" · ") || "—"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
     </View>
   );
 }

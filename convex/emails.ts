@@ -815,8 +815,11 @@ export const sendInvoicePendingDigest = internalAction({
  * la Recyclerie 60 : c'est le site principal, et un lien vaut mieux qu'aucun.
  */
 const GOOGLE_REVIEW_LINKS: Record<string, { url: string; label: string }> = {
-  "60": { url: "https://share.google/6Vi8FRjpkRx6dSek6", label: "Recyclerie du Pays de Bray (60)" },
-  "76": { url: "https://share.google/1entOnue5Ej2HWcCt", label: "Recyclerie de Gournay en Bray (76)" },
+  // Liens « /review » de la fiche Google : ils ouvrent directement le
+  // formulaire de notation, là où un lien de partage impose un détour par la
+  // fiche puis un second clic.
+  "60": { url: "https://g.page/r/Ca7-zpJ4l8p2EBM/review", label: "Recyclerie du Pays de Bray (60)" },
+  "76": { url: "https://g.page/r/Cc5Sx_tZfUvBEBM/review", label: "Recyclerie de Gournay en Bray (76)" },
 };
 
 /** Invitation à laisser un avis Google, envoyée une fois la demande gagnée. */

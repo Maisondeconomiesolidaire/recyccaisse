@@ -204,6 +204,54 @@ export const requestOrigin = v.union(
   v.literal("external"),
 );
 
+
+/* ─── Bâtire : matériaux du bâtiment ─────────────────────────────────────── */
+
+/**
+ * Unité de vente d'un matériau. Elle gouverne le prix, le stock et le devis :
+ * du sable se vend à la tonne, un isolant au m², une poutre au mètre linéaire.
+ */
+export const btUnit = v.union(
+  v.literal("unité"),
+  v.literal("m²"),
+  v.literal("m³"),
+  v.literal("ml"),
+  v.literal("kg"),
+  v.literal("tonne"),
+  v.literal("palette"),
+  v.literal("sac"),
+  v.literal("lot"),
+);
+
+export const btCondition = v.union(
+  v.literal("Neuf"),
+  v.literal("Déstockage"),
+  v.literal("Très bon état"),
+  v.literal("Bon état"),
+  v.literal("À rénover"),
+);
+
+export const btMaterialStatus = v.union(
+  v.literal("brouillon"),
+  v.literal("disponible"),
+  v.literal("reserve"),
+  v.literal("vendu"),
+);
+
+export const btRequestType = v.union(
+  v.literal("devis"),
+  v.literal("reservation"),
+  v.literal("reprise"),
+  v.literal("question"),
+);
+
+export const btRequestOutcome = v.union(
+  v.literal("nouveau"),
+  v.literal("en_cours"),
+  v.literal("gagnee"),
+  v.literal("perdue"),
+);
+
 export const hrEmployeeGender = v.union(v.literal("Monsieur"), v.literal("Madame"));
 
 export const hrEmployeeStructure = v.union(
@@ -2525,6 +2573,173 @@ export default defineSchema(
     .index("by_worker", ["workerId"])
     .index("by_task", ["taskId"])
     .index("by_startAt", ["startAt"]),
+
+  // ───────────────────────────── App « Bâtire » ─────────────────────────────
+  // Matériaux de construction de seconde main : catalogue, boutique en ligne,
+  // vitrine kiosque et demandes clients. Tables préfixées `bt`, distinctes des
+  // `articles` de la Recyclerie — un matériau se vend au mètre cube ou à la
+  // tonne, se stocke sur palette et porte des caractéristiques techniques
+  // qu'un objet de brocante n'a pas.
+
+  btMaterials: defineTable({
+    title: v.string(),
+    description: v.string(),
+    /** Niveau 1 de l'arborescence. */
+    category: v.string(),
+    /** Niveau 2 : famille. */
+    family: v.optional(v.string()),
+    /** Niveau 3 : sous-famille. */
+    subcategory: v.optional(v.string()),
+    condition: btCondition,
+    /** Unité de vente : c'est elle qui donne son sens au prix et au stock. */
+    unit: btUnit,
+    /** Stock disponible, exprimé dans l'unité de vente. */
+    quantity: v.number(),
+    /** Prix pour UNE unité de vente (un m³, une tonne, une palette…). */
+    price: v.number(),
+    /** Conditionnement : « palette de 60 sacs », « botte de 10 ». */
+    packaging: v.optional(v.string()),
+    /** Dimensions en centimètres, quand elles ont un sens pour le matériau. */
+    lengthCm: v.optional(v.number()),
+    widthCm: v.optional(v.number()),
+    heightCm: v.optional(v.number()),
+    thicknessMm: v.optional(v.number()),
+    weightKg: v.optional(v.number()),
+    brand: v.optional(v.string()),
+    /** Référence fabricant ou modèle lu sur l'étiquette. */
+    modelReference: v.optional(v.string()),
+    /** Matière : bois, béton, acier, PVC, aluminium, plâtre, terre cuite… */
+    material: v.optional(v.string()),
+    color: v.optional(v.string()),
+    /** Normes et certifications visibles : CE, NF, A+, classe d'emploi… */
+    standards: v.optional(v.string()),
+    /** Caractéristiques techniques libres : lambda, résistance, section… */
+    technicalNotes: v.optional(v.string()),
+    /** Dépôt où le matériau est entreposé. */
+    depot: v.optional(v.string()),
+    /** Emplacement précis dans le dépôt : « allée B3 », « extérieur ». */
+    location: v.optional(v.string()),
+    photos: v.array(v.id("_storage")),
+    status: btMaterialStatus,
+    /** Publié dans la boutique en ligne (distinct du statut de stock). */
+    published: v.optional(v.boolean()),
+    publishedAt: v.optional(v.number()),
+    featured: v.optional(v.boolean()),
+    /** Référence du QR code collé sur le matériau. */
+    qrReference: v.optional(v.string()),
+    aiConfidence: v.optional(v.number()),
+    aiNotes: v.optional(v.string()),
+    createdBy: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_status", ["status"])
+    .index("by_published", ["published"])
+    .index("by_category", ["category"])
+    .index("by_qrReference", ["qrReference"])
+    .index("by_createdAt", ["createdAt"]),
+
+  btRequests: defineTable({
+    reference: v.string(),
+    type: btRequestType,
+    customer: v.object({
+      firstName: v.string(),
+      lastName: v.string(),
+      email: v.string(),
+      phone: v.string(),
+      company: v.optional(v.string()),
+    }),
+    /** Matériaux visés. Vide pour une demande de reprise ou une question. */
+    items: v.array(
+      v.object({
+        materialId: v.optional(v.id("btMaterials")),
+        title: v.string(),
+        quantity: v.number(),
+        unit: btUnit,
+      }),
+    ),
+    message: v.optional(v.string()),
+    /** Photos jointes : indispensables pour une proposition de reprise. */
+    photos: v.optional(v.array(v.id("_storage"))),
+    outcome: btRequestOutcome,
+    /** Suivi interne, non visible du client. */
+    internalNotes: v.optional(v.string()),
+    depot: v.optional(v.string()),
+    /** Compte client Clerk rattaché, si la demande vient d'un utilisateur connu. */
+    userId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_outcome", ["outcome"])
+    .index("by_reference", ["reference"])
+    .index("by_createdAt", ["createdAt"]),
+
+  /** Ventes Bâtire : paiement en ligne (boutique) ou au terminal (kiosque). */
+  btOrders: defineTable({
+    reference: v.string(),
+    materialId: v.id("btMaterials"),
+    materialTitle: v.string(),
+    quantity: v.number(),
+    unit: btUnit,
+    /** Prix unitaire au moment de la vente : le catalogue peut changer après. */
+    unitPrice: v.number(),
+    /** Montant total en centimes, tel qu'encaissé par Stripe. */
+    amountCents: v.number(),
+    customer: v.object({
+      firstName: v.string(),
+      lastName: v.string(),
+      email: v.string(),
+      phone: v.optional(v.string()),
+      company: v.optional(v.string()),
+    }),
+    channel: v.union(v.literal("boutique"), v.literal("terminal")),
+    status: v.union(v.literal("en_attente"), v.literal("payee"), v.literal("annulee")),
+    stripeSessionId: v.optional(v.string()),
+    stripePaymentIntentId: v.optional(v.string()),
+    paidAt: v.optional(v.number()),
+    userId: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_status", ["status"])
+    .index("by_reference", ["reference"])
+    .index("by_material", ["materialId"])
+    .index("by_stripeSession", ["stripeSessionId"]),
+
+  /**
+   * Messagerie Bâtire : un fil par client et par matériau.
+   *
+   * Négocier une reprise ou organiser un enlèvement se fait en quelques
+   * échanges ; les rattacher au matériau évite de chercher de quoi on parle.
+   */
+  btMessages: defineTable({
+    /** Fil = matériau + client. Un matériau retiré garde son historique. */
+    materialId: v.optional(v.id("btMaterials")),
+    materialTitle: v.string(),
+    /** Identifiant Clerk du client : c'est lui qui identifie le fil. */
+    clientId: v.string(),
+    clientName: v.string(),
+    clientEmail: v.string(),
+    body: v.string(),
+    /** Vrai si le message vient de l'équipe. */
+    fromStaff: v.boolean(),
+    authorName: v.string(),
+    readByStaff: v.optional(v.boolean()),
+    readByClient: v.optional(v.boolean()),
+    createdAt: v.number(),
+  })
+    .index("by_client", ["clientId"])
+    .index("by_material", ["materialId"])
+    .index("by_createdAt", ["createdAt"]),
+
+  /** QR codes imprimés à l'avance, collés sur les matériaux à leur arrivée. */
+  btQrCodes: defineTable({
+    reference: v.string(),
+    materialId: v.optional(v.id("btMaterials")),
+    createdBy: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_reference", ["reference"])
+    .index("by_material", ["materialId"]),
   },
   { schemaValidation: false },
 );

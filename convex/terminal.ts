@@ -281,6 +281,68 @@ export const articleForCharge = internalQuery({
   },
 });
 
+
+/**
+ * Recherche de client, sur le nom comme sur l'adresse.
+ *
+ * La caisse ne connaît pas l'email par cœur : demander la saisie exacte d'une
+ * adresse devant un client qui attend est le meilleur moyen de créer un
+ * doublon. On cherche donc dans les deux réservoirs — le fichier client repris
+ * et les demandes passées — et on rend une liste à choisir.
+ */
+export const searchCustomers = query({
+  args: { query: v.string() },
+  handler: async (ctx, { query: rawQuery }) => {
+    await requireStaff(ctx);
+    const normalize = (value: string) =>
+      value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+    const needle = normalize(rawQuery);
+    // Deux caractères ne discriminent rien : on renverrait la moitié du fichier.
+    if (needle.length < 2) return [];
+
+    const found = new Map<
+      string,
+      { firstName: string; lastName: string; email: string; phone: string; source: string }
+    >();
+
+    const add = (
+      customer: { firstName: string; lastName: string; email: string; phone: string },
+      source: string,
+    ) => {
+      const email = customer.email?.trim().toLowerCase() ?? "";
+      // Sans email, on retombe sur le nom : deux homonymes sans adresse
+      // resteraient confondus, mais mieux vaut une entrée que zéro.
+      const key = email || normalize(`${customer.firstName} ${customer.lastName}`);
+      if (!key || found.has(key)) return;
+      const haystack = normalize(
+        `${customer.firstName} ${customer.lastName} ${email} ${customer.phone ?? ""}`,
+      );
+      if (!haystack.includes(needle)) return;
+      found.set(key, {
+        firstName: customer.firstName ?? "",
+        lastName: customer.lastName ?? "",
+        email,
+        phone: customer.phone ?? "",
+        source,
+      });
+    };
+
+    const imported = await ctx.db.query("crmCustomers").take(4000);
+    for (const customer of imported) add(customer, "fichier");
+
+    const requests = await ctx.db.query("requests").order("desc").take(2000);
+    for (const request of requests) add(request.customer, "demande");
+
+    return [...found.values()]
+      .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "fr"))
+      .slice(0, 25);
+  },
+});
+
 /**
  * Prépare l'encaissement : verrouille le montant et ouvre un PaymentIntent
  * `card_present` que le SDK Terminal présentera au lecteur.
