@@ -15,15 +15,48 @@ import { api } from "../convex/_generated/api";
  * (obligation réglementaire, pas un confort), et Android exige les permissions
  * Bluetooth depuis la version 12. Sans elles, la découverte ne renvoie rien.
  */
-async function requestAndroidPermissions() {
-  if (Platform.OS !== "android") return true;
-  const wanted = [
+type PermissionCheck = { granted: boolean; missing: string[]; blocked: boolean };
+
+/** Libellés côté réglages Android, pour dire précisément ce qui manque. */
+const PERMISSION_LABELS: Record<string, string> = {
+  "android.permission.ACCESS_FINE_LOCATION": "Localisation précise",
+  "android.permission.BLUETOOTH_CONNECT": "Appareils à proximité (connexion)",
+  "android.permission.BLUETOOTH_SCAN": "Appareils à proximité (recherche)",
+};
+
+async function requestAndroidPermissions(): Promise<PermissionCheck> {
+  if (Platform.OS !== "android") return { granted: true, missing: [], blocked: false };
+
+  // BLUETOOTH_SCAN et BLUETOOTH_CONNECT n'existent qu'à partir d'Android 12
+  // (API 31). Les demander plus bas renvoie « denied » pour une permission
+  // inexistante, et ferait échouer un appareil pourtant correctement réglé.
+  const required = [
     PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-    PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+    ...(Number(Platform.Version) >= 31
+      ? [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        ]
+      : []),
   ].filter(Boolean) as string[];
-  const granted = await PermissionsAndroid.requestMultiple(wanted as never);
-  return Object.values(granted).every((state) => state === "granted");
+
+  const missing: string[] = [];
+  for (const permission of required) {
+    if (await PermissionsAndroid.check(permission as never)) continue;
+    missing.push(permission);
+  }
+  if (missing.length === 0) return { granted: true, missing: [], blocked: false };
+
+  const results = await PermissionsAndroid.requestMultiple(missing as never[]);
+  const refused = Object.entries(results).filter(([, state]) => state !== "granted");
+  // « never_ask_again » : Android n'affichera plus la demande, il faut passer
+  // par les réglages de l'application.
+  const blocked = refused.some(([, state]) => state === "never_ask_again");
+  return {
+    granted: refused.length === 0,
+    missing: refused.map(([permission]) => PERMISSION_LABELS[permission] ?? permission),
+    blocked,
+  };
 }
 
 export function useReader() {
@@ -68,9 +101,14 @@ export function useReader() {
     readers.current = [];
     setFound([]);
     try {
-      if (!(await requestAndroidPermissions())) {
+      const permissions = await requestAndroidPermissions();
+      if (!permissions.granted) {
         throw new Error(
-          "Autorisations refusées : Bluetooth et localisation sont nécessaires pour encaisser.",
+          `Autorisation manquante : ${permissions.missing.join(", ")}.` +
+            (permissions.blocked
+              ? " Android ne la redemandera plus : ouvrez Paramètres › Applications › Recyc Caisse › Autorisations pour l'accorder."
+              : " Stripe l'exige pour encaisser au terminal.") +
+            " À ne pas confondre avec les interrupteurs Bluetooth et localisation du téléphone, qui doivent aussi être allumés.",
         );
       }
       const locations = await listLocations({});
