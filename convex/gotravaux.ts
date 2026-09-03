@@ -240,6 +240,15 @@ export const createVehicleTask = mutation({
     laborMinutes: v.optional(v.number()),
     partsCost: v.optional(v.number()),
     attachments: v.optional(v.array(v.id("_storage"))),
+    attachmentMeta: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"),
+          name: v.optional(v.string()),
+          contentType: v.optional(v.string()),
+        }),
+      ),
+    ),
     beforePhotos: v.optional(v.array(v.id("_storage"))),
     beforeNotes: v.optional(v.string()),
     afterPhotos: v.optional(v.array(v.id("_storage"))),
@@ -268,6 +277,7 @@ export const createVehicleTask = mutation({
       laborMinutes: args.laborMinutes,
       partsCost: args.partsCost,
       attachments: args.attachments?.length ? args.attachments : undefined,
+      attachmentMeta: args.attachmentMeta?.length ? args.attachmentMeta : undefined,
       beforePhotos: args.beforePhotos?.length ? args.beforePhotos : undefined,
       beforeNotes: args.beforeNotes?.trim() || undefined,
       afterPhotos: args.afterPhotos?.length ? args.afterPhotos : undefined,
@@ -390,6 +400,15 @@ export const updateVehicleTask = mutation({
     laborMinutes: v.optional(v.union(v.number(), v.null())),
     partsCost: v.optional(v.union(v.number(), v.null())),
     attachments: v.optional(v.array(v.id("_storage"))),
+    attachmentMeta: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"),
+          name: v.optional(v.string()),
+          contentType: v.optional(v.string()),
+        }),
+      ),
+    ),
     beforePhotos: v.optional(v.array(v.id("_storage"))),
     beforeNotes: v.optional(v.string()),
     afterPhotos: v.optional(v.array(v.id("_storage"))),
@@ -441,6 +460,9 @@ export const updateVehicleTask = mutation({
       laborMinutes?: number | undefined;
       partsCost?: number | undefined;
       attachments?: Id<"_storage">[] | undefined;
+      attachmentMeta?:
+        | Array<{ storageId: Id<"_storage">; name?: string; contentType?: string }>
+        | undefined;
       beforePhotos?: Id<"_storage">[] | undefined;
       beforeNotes?: string | undefined;
       afterPhotos?: Id<"_storage">[] | undefined;
@@ -460,6 +482,9 @@ export const updateVehicleTask = mutation({
     if (args.partsCost !== undefined) patch.partsCost = args.partsCost ?? undefined;
     if (args.attachments !== undefined) {
       patch.attachments = args.attachments.length ? args.attachments : undefined;
+    }
+    if (args.attachmentMeta !== undefined) {
+      patch.attachmentMeta = args.attachmentMeta.length ? args.attachmentMeta : undefined;
     }
     if (args.beforePhotos !== undefined) {
       patch.beforePhotos = args.beforePhotos.length ? args.beforePhotos : undefined;

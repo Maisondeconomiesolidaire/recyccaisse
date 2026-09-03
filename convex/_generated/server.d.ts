@@ -27,6 +27,7 @@ import type { DataModel } from "./dataModel.js";
 type Env = {
   readonly ADMIN_EMAILS: string | undefined;
   readonly APP_URL: string | undefined;
+  readonly BATIRE_ANALYSIS_MODEL: string | undefined;
   readonly BENNESPRO_EMAIL_LOGO_ID: string | undefined;
   readonly BENNESPRO_STRIPE_SECRET_KEY: string | undefined;
   readonly BENNESPRO_STRIPE_TVA_TAX_RATE_ID: string | undefined;

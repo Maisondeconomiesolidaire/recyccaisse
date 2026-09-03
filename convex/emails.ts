@@ -473,6 +473,24 @@ const AEROGOMMAGE_STAFF_EMAILS = [
   "e.carette@eco-solidaire.fr",
 ];
 
+/**
+ * Dépôts en recyclerie : chaque site a sa propre équipe d'accueil, seule à
+ * pouvoir tenir le planning des créneaux du lundi. Un dépôt part donc aux
+ * destinataires de SA recyclerie, pas à la liste générale.
+ */
+const DEPOT_STAFF_EMAILS: Record<"60" | "76", string[]> = {
+  "60": [
+    "e.carette@eco-solidaire.fr",
+    "a.dargent@eco-solidaire.fr",
+    "accueil.recyclerie@eco-solidaire.fr",
+  ],
+  "76": [
+    "o.dalencourt@eco-solidaire.fr",
+    "v.horcholle@eco-solidaire.fr",
+    "accueil.recyclerie@eco-solidaire.fr",
+  ],
+};
+
 /** Lien de paiement envoyé au client depuis le CRM. */
 export const sendPaymentLink = internalAction({
   args: {
@@ -512,8 +530,10 @@ export const sendNewRequestToStaff = internalAction({
     reference: v.string(),
     customerName: v.string(),
     article: articleArg,
+    /** Recyclerie concernée — renseignée pour les dépôts, qui sont routés par site. */
+    site: v.optional(v.union(v.literal("60"), v.literal("76"))),
   },
-  handler: async (_ctx, { type, reference, customerName, article }) => {
+  handler: async (_ctx, { type, reference, customerName, article, site }) => {
     const label = typeLabel(type);
     const html = shell({
       preheader: `Nouvelle demande ${label} de ${customerName} (#${reference}).`,
@@ -526,7 +546,11 @@ export const sendNewRequestToStaff = internalAction({
       `,
     });
     const recipients =
-      type === "aerogommage" ? AEROGOMMAGE_STAFF_EMAILS : NEW_REQUEST_STAFF_EMAILS;
+      type === "depot" && site
+        ? DEPOT_STAFF_EMAILS[site]
+        : type === "aerogommage"
+          ? AEROGOMMAGE_STAFF_EMAILS
+          : NEW_REQUEST_STAFF_EMAILS;
     await resendSend(recipients, `Nouvelle demande · ${label} #${reference}`, html);
   },
 });

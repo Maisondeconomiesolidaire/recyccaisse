@@ -713,3 +713,77 @@ export function isVehicleReturnOverdue(
     reservation.end >= MANDATORY_RETURN_SINCE
   );
 }
+
+/** Un relevé kilométrique daté : la valeur, et le moment où elle a été prise. */
+export type MileageReading = { mileage: number; recordedAt: number };
+
+/**
+ * Relevé porté par la fiche véhicule (page Flotte, maintenance). Sans
+ * `odometerUpdatedAt` — véhicules importés avant que le champ existe — on le
+ * date de l'époque 0 : un retour de réservation, lui, est toujours daté et
+ * doit donc l'emporter.
+ */
+export function vehicleOdometerReading(
+  vehicle: { odometerKm?: number; odometerUpdatedAt?: string } | null | undefined,
+): MileageReading | undefined {
+  if (!vehicle || typeof vehicle.odometerKm !== "number" || !Number.isFinite(vehicle.odometerKm)) {
+    return undefined;
+  }
+  const updatedAt = vehicle.odometerUpdatedAt ? Date.parse(vehicle.odometerUpdatedAt) : Number.NaN;
+  return {
+    mileage: vehicle.odometerKm,
+    recordedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+  };
+}
+
+/** Relevé porté par le retour d'une réservation de véhicule. */
+export function reservationMileageReading(
+  reservation: {
+    feedbackMileage?: number;
+    feedbackSubmittedAt?: number;
+    start?: number;
+    end?: number;
+    _creationTime?: number;
+  },
+): MileageReading | undefined {
+  if (
+    typeof reservation.feedbackMileage !== "number" ||
+    !Number.isFinite(reservation.feedbackMileage)
+  ) {
+    return undefined;
+  }
+  return {
+    mileage: reservation.feedbackMileage,
+    recordedAt:
+      reservation.feedbackSubmittedAt ??
+      reservation.end ??
+      reservation.start ??
+      reservation._creationTime ??
+      0,
+  };
+}
+
+/**
+ * Dernier kilométrage connu d'un véhicule : le relevé le plus RÉCENT, pas le
+ * plus élevé. Corriger le compteur depuis la fiche véhicule (faute de frappe,
+ * compteur remplacé, valeur importée fausse) doit redevenir la base des
+ * retours suivants ; un `Math.max` conservait indéfiniment l'ancienne valeur.
+ */
+export function latestMileageReading(
+  vehicle: { odometerKm?: number; odometerUpdatedAt?: string } | null | undefined,
+  reservations: Iterable<Parameters<typeof reservationMileageReading>[0]>,
+): MileageReading | undefined {
+  let latest = vehicleOdometerReading(vehicle);
+  for (const reservation of reservations) {
+    const reading = reservationMileageReading(reservation);
+    if (!reading) continue;
+    if (
+      !latest ||
+      reading.recordedAt > latest.recordedAt ||
+      (reading.recordedAt === latest.recordedAt && reading.mileage > latest.mileage)
+    ) {
+      latest = reading;
+    }
+  }
+  return latest;
+}

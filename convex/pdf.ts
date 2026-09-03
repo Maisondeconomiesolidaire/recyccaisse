@@ -3,9 +3,13 @@
  *
  * Le backend est partagé par les 7 apps de l'écosystème : y ajouter une
  * librairie PDF alourdirait chacun de leurs déploiements pour un besoin qui se
- * limite à composer une facture d'une page. On écrit donc directement le
- * format, qui pour ce cas se réduit à un catalogue, une page, deux polices
- * standard et un flux de contenu.
+ * limite à composer une facture ou un rapport. On écrit donc directement le
+ * format, qui se réduit ici à un catalogue, des pages, deux polices standard
+ * et un flux de contenu par page.
+ *
+ * La mise en page coule : quand le curseur atteint la marge basse, une page
+ * s'ouvre et le flux reprend en haut. Un document qui tient sur une page en
+ * produit toujours une seule — les factures ne changent pas d'aspect.
  *
  * Limites assumées : polices Helvetica uniquement (aucune police à embarquer),
  * encodage WinAnsi (couvre le français), pas d'images.
@@ -143,12 +147,16 @@ function colorOp(color: PdfColor, stroke = false) {
 }
 
 /**
- * Compose un PDF d'une page à partir d'éléments de mise en page.
- * Renvoie les octets, prêts à être stockés ou envoyés en pièce jointe.
+ * Compose un PDF à partir d'éléments de mise en page, sur autant de pages que
+ * nécessaire. Renvoie les octets, prêts à être stockés ou envoyés en pièce
+ * jointe.
  */
 export function buildPdf(elements: PdfElement[]): Uint8Array {
-  let cursorY = PAGE_HEIGHT - MARGIN;
-  const ops: string[] = [];
+  const TOP = PAGE_HEIGHT - MARGIN;
+  /** Flux de chaque page terminée ; la page courante se compose dans `ops`. */
+  const pages: string[][] = [];
+  let ops: string[] = [];
+  let cursorY = TOP;
   let textOpen = false;
 
   const openText = () => {
@@ -163,6 +171,13 @@ export function buildPdf(elements: PdfElement[]): Uint8Array {
       textOpen = false;
     }
   };
+  /** Ferme la page courante et repart en haut d'une page vierge. */
+  const breakPage = () => {
+    closeText();
+    pages.push(ops);
+    ops = [];
+    cursorY = TOP;
+  };
 
   for (const element of elements) {
     if (element.kind === "space") {
@@ -172,6 +187,12 @@ export function buildPdf(elements: PdfElement[]): Uint8Array {
 
     if (element.kind === "rule") {
       closeText();
+      // Un filet en tête de page ne sert à rien : on le laisse tomber avec la
+      // page qu'il clôturait.
+      if (cursorY - (element.spaceBefore ?? 0) < MARGIN) {
+        breakPage();
+        continue;
+      }
       cursorY -= element.spaceBefore ?? 0;
       const color = element.color ?? [0.82, 0.82, 0.82];
       ops.push(
@@ -184,6 +205,9 @@ export function buildPdf(elements: PdfElement[]): Uint8Array {
 
     if (element.kind === "band") {
       closeText();
+      // Le bandeau porte un en-tête de tableau : le couper en bas de page le
+      // séparerait de son titre, posé juste après par un élément `inline`.
+      if (cursorY - (element.spaceBefore ?? 0) - element.height < MARGIN) breakPage();
       cursorY -= element.spaceBefore ?? 0;
       ops.push(
         colorOp(element.color),
@@ -193,7 +217,19 @@ export function buildPdf(elements: PdfElement[]): Uint8Array {
     }
 
     const size = element.size ?? 10;
-    if (!element.inline) cursorY -= (element.spaceBefore ?? 0) + size * 1.35;
+    if (!element.inline) {
+      // Un élément `inline` se pose sur la ligne de base courante : il suit
+      // toujours la page de l'élément qui l'a fait descendre, jamais la
+      // suivante. Seules les lignes qui avancent le curseur décident.
+      const lineHeight = size * 1.35;
+      if (cursorY - (element.spaceBefore ?? 0) - lineHeight < MARGIN) {
+        breakPage();
+        // L'espacement d'avant-ligne est absorbé par la marge haute.
+        cursorY -= lineHeight;
+      } else {
+        cursorY -= (element.spaceBefore ?? 0) + lineHeight;
+      }
+    }
     openText();
     ops.push(`/${element.bold ? "F2" : "F1"} ${size} Tf`);
     ops.push(colorOp(element.color ?? [0.1, 0.1, 0.1]));
@@ -208,14 +244,31 @@ export function buildPdf(elements: PdfElement[]): Uint8Array {
     ops.push(`(${escapePdfText(element.text)}) Tj`);
   }
   closeText();
+  pages.push(ops);
 
-  const content = ops.join("\n");
+  // Numérotation des objets : 1 catalogue, 2 arbre des pages, puis une page
+  // par feuille, puis leurs flux, et enfin les deux polices — que toutes les
+  // pages partagent.
+  const count = pages.length;
+  const firstPage = 3;
+  const firstContent = firstPage + count;
+  const fontRegular = firstContent + count;
+  const fontBold = fontRegular + 1;
+  const kids = pages.map((_, index) => `${firstPage + index} 0 R`).join(" ");
+
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
-      "/Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>",
-    `<< /Length ${toBytes(content).length} >>\nstream\n${content}\nendstream`,
+    `<< /Type /Pages /Kids [${kids}] /Count ${count} >>`,
+    ...pages.map(
+      (_, index) =>
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
+        `/Resources << /Font << /F1 ${fontRegular} 0 R /F2 ${fontBold} 0 R >> >> ` +
+        `/Contents ${firstContent + index} 0 R >>`,
+    ),
+    ...pages.map((pageOps) => {
+      const content = pageOps.join("\n");
+      return `<< /Length ${toBytes(content).length} >>\nstream\n${content}\nendstream`;
+    }),
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
   ];

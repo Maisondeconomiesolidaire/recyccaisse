@@ -145,13 +145,32 @@ export const listSignupSources = query({
   handler: async (ctx) => {
     await requirePermissionManager(ctx);
     const users = await ctx.db.query("users").collect();
-    const byEmail: Record<string, { app?: string; path?: string; at: number }> = {};
+    const byEmail: Record<
+      string,
+      {
+        app?: string;
+        path?: string;
+        entryPath?: string;
+        landingPath?: string;
+        referrer?: string;
+        utm?: string;
+        at: number;
+      }
+    > = {};
     for (const user of users) {
       const email = user.email.trim().toLowerCase();
       if (!email) continue;
       const existing = byEmail[email];
       if (!existing || user.createdAt < existing.at) {
-        byEmail[email] = { app: user.signupApp, path: user.signupPath, at: user.createdAt };
+        byEmail[email] = {
+          app: user.signupApp,
+          path: user.signupPath,
+          entryPath: user.signupEntryPath,
+          landingPath: user.signupLandingPath,
+          referrer: user.signupReferrer,
+          utm: user.signupUtm,
+          at: user.createdAt,
+        };
       }
     }
     return byEmail;

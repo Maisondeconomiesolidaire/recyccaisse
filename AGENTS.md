@@ -86,9 +86,32 @@ une table Convex peut casser les 7 apps d'un coup. C'est la cause classique de
   par app (`mesoutils:…`, `recyclerie:…`, …), administrées depuis la page admin
   de Mes Outils. Ne crée pas de système de rôles parallèle dans une app.
 
+## Règles frontend partagé (portail d'authentification)
+
+Les 8 apps web partagent la même instance Clerk et **le même écran de connexion
+/ inscription** (« Auth Switch » : formulaire qui glisse, panneaux qui se
+croisent).
+
+- **Source de vérité** : `~/mesoutils/src/components/ui/auth-switch.tsx` et le
+  bloc CSS entre `/* >>> AUTH-PORTAL >>> */` et `/* <<< AUTH-PORTAL <<< */`
+  dans `~/mesoutils/src/index.css`. N'édite le portail QUE là.
+- **Propage avec `bash ~/mesoutils/scripts/sync-auth-portal.sh`**, puis
+  typecheck les apps touchées. Sans ça, la copie dérive : Recycapp, Cycle en
+  Bray et Bennes Pro se sont retrouvées avec le `.tsx` mais sans le CSS, donc
+  un portail sans mise en page ni animation.
+- **Ce qui reste propre à chaque app** : les props de `<AuthSwitch>` (nom,
+  logo, liens légaux, lien de retour) et, seulement si sa palette
+  `--color-brand-*` ne suffit pas, les variables `--auth-page-bg`,
+  `--auth-circle`, `--auth-shadow`, `--auth-accent` dans son `:root`.
+- Le composant est **volontairement sans react-router** (`<a>` et
+  `window.location`) : Klyde n'a pas de routeur et doit pouvoir l'utiliser tel
+  quel. N'y réintroduis pas `Link`/`useNavigate`.
+- `~/recyccaisse` est hors périmètre : app Expo/React Native, sans DOM.
+
 ## Check-list de fin d'intervention (obligatoire)
 
-1. `bash ~/mesoutils/scripts/sync-convex.sh` relancé.
+1. `bash ~/mesoutils/scripts/sync-convex.sh` relancé (et
+   `sync-auth-portal.sh` si le portail d'authentification a bougé).
 2. Typecheck OK : `npx tsc -p convex/tsconfig.json --noEmit` et
    `npx tsc -p tsconfig.app.json --noEmit` dans l'app touchée.
 3. Fonction/table partagée modifiée → usages greppés dans les 7 dépôts.

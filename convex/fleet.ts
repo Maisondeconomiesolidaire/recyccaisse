@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import {
   isVehicleReturnOverdue,
+  latestMileageReading,
   requireAnyCrmPermission,
   requireCrmPermission,
   vehicleReservationBusyEnd,
@@ -191,19 +192,9 @@ export const listRemarks = query({
       .order("desc")
       .collect();
     const reservations = raw.filter((reservation) => reservation.feedbackSubmittedAt);
-    const lastMileage =
-      raw.reduce<number | null>((highest, reservation) => {
-        if (
-          typeof reservation.feedbackMileage !== "number" ||
-          !Number.isFinite(reservation.feedbackMileage)
-        ) {
-          return highest;
-        }
-        if (highest === null) {
-          return reservation.feedbackMileage;
-        }
-        return Math.max(highest, reservation.feedbackMileage);
-      }, typeof vehicle.odometerKm === "number" ? vehicle.odometerKm : null) ?? null;
+    // Le relevé de référence est le plus récent (fiche véhicule ou retour),
+    // pas le plus élevé : une correction du compteur doit faire autorité.
+    const lastMileage = latestMileageReading(vehicle, raw)?.mileage ?? null;
 
     return {
       vehicleId: vehicle._id,

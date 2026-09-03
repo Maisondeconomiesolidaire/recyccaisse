@@ -330,9 +330,20 @@ export const setSignupApp = internalMutation({
 
 export const syncProfile = mutation({
   args: {
-    // Origine de l'inscription (app + chemin/formulaire), enregistrée une seule
-    // fois, à la création du profil.
-    source: v.optional(v.object({ app: v.string(), path: v.string() })),
+    // Origine de l'inscription, enregistrée une seule fois, à la création du
+    // profil. `path` est relevé au retour de Clerk (souvent l'accueil) ;
+    // `entryPath` et `landingPath` viennent du navigateur, capturés avant la
+    // redirection : ce sont eux qui disent de quel écran part l'inscription.
+    source: v.optional(
+      v.object({
+        app: v.string(),
+        path: v.string(),
+        entryPath: v.optional(v.string()),
+        landingPath: v.optional(v.string()),
+        referrer: v.optional(v.string()),
+        utm: v.optional(v.string()),
+      }),
+    ),
   },
   handler: async (ctx, { source }) => {
     const identity = await requireUser(ctx);
@@ -363,6 +374,10 @@ export const syncProfile = mutation({
           imageUrl: imageUrl ?? profileByEmail.imageUrl,
           signupApp: profileByEmail.signupApp ?? source?.app,
           signupPath: profileByEmail.signupPath ?? source?.path,
+          signupEntryPath: profileByEmail.signupEntryPath ?? source?.entryPath,
+          signupLandingPath: profileByEmail.signupLandingPath ?? source?.landingPath,
+          signupReferrer: profileByEmail.signupReferrer ?? source?.referrer,
+          signupUtm: profileByEmail.signupUtm ?? source?.utm,
           updatedAt: now,
         });
         profile = await ctx.db.get(profileByEmail._id);
@@ -375,16 +390,27 @@ export const syncProfile = mutation({
           imageUrl,
           signupApp: source?.app,
           signupPath: source?.path,
+          signupEntryPath: source?.entryPath,
+          signupLandingPath: source?.landingPath,
+          signupReferrer: source?.referrer,
+          signupUtm: source?.utm,
           createdAt: now,
           updatedAt: now,
         });
         profile = await ctx.db.get(profileId);
       }
-    } else if (source && (!profile.signupApp || !profile.signupPath)) {
+    } else if (
+      source &&
+      (!profile.signupApp || !profile.signupPath || !profile.signupEntryPath)
+    ) {
       // Complète la source si elle manquait (profils créés avant le suivi).
       await ctx.db.patch(profile._id, {
         signupApp: profile.signupApp ?? source.app,
         signupPath: profile.signupPath ?? source.path,
+        signupEntryPath: profile.signupEntryPath ?? source.entryPath,
+        signupLandingPath: profile.signupLandingPath ?? source.landingPath,
+        signupReferrer: profile.signupReferrer ?? source.referrer,
+        signupUtm: profile.signupUtm ?? source.utm,
         updatedAt: now,
       });
       profile = await ctx.db.get(profile._id);

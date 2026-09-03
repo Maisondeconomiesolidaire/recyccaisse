@@ -12,9 +12,11 @@ import {
   hasCrmPermission,
   isReservationParticipant,
   isVehicleReturnOverdue,
+  latestMileageReading,
   photoForClerkId,
   requireCrmPermission,
   requireUser,
+  vehicleOdometerReading,
   vehicleReservationBusyEnd,
 } from "./lib";
 import { vehicleBusyReason } from "./fleet";
@@ -212,17 +214,7 @@ async function lastRecordedMileageForVehicle(
       .withIndex("by_vehicleId", (q) => q.eq("vehicleId", vehicleId))
       .collect(),
   ]);
-  const reservationMileage = reservations.reduce<number | undefined>((max, reservation) => {
-    const mileage = reservation.feedbackMileage;
-    if (typeof mileage !== "number" || !Number.isFinite(mileage)) return max;
-    return max === undefined ? mileage : Math.max(max, mileage);
-  }, undefined);
-  if (typeof vehicle?.odometerKm === "number" && Number.isFinite(vehicle.odometerKm)) {
-    return reservationMileage === undefined
-      ? vehicle.odometerKm
-      : Math.max(vehicle.odometerKm, reservationMileage);
-  }
-  return reservationMileage;
+  return latestMileageReading(vehicle, reservations)?.mileage;
 }
 
 function feedbackMileageRecordedAt(reservation: Doc<"vehicleReservations">) {
@@ -728,20 +720,24 @@ export const listMyReservations = query({
         ),
       ),
     );
-    const lastMileageByVehicleId = new Map(
-      vehicles.map((vehicle) => [String(vehicle._id), vehicle.odometerKm]),
-    );
+    // Base kilométrique proposée au retour : le relevé le plus récent du
+    // véhicule, qu'il vienne de sa fiche (Flotte) ou du dernier retour.
+    const reservationsByVehicleId = new Map<string, Array<Doc<"vehicleReservations">>>();
     for (const reservation of vehicleRes) {
-      if (typeof reservation.feedbackMileage !== "number" || !Number.isFinite(reservation.feedbackMileage)) {
-        continue;
-      }
       const key = String(reservation.vehicleId);
-      const current = lastMileageByVehicleId.get(key);
-      lastMileageByVehicleId.set(
-        key,
-        typeof current === "number" ? Math.max(current, reservation.feedbackMileage) : reservation.feedbackMileage,
-      );
+      const list = reservationsByVehicleId.get(key);
+      if (list) list.push(reservation);
+      else reservationsByVehicleId.set(key, [reservation]);
     }
+    const lastMileageByVehicleId = new Map(
+      vehicles.map((vehicle) => {
+        const key = String(vehicle._id);
+        return [
+          key,
+          latestMileageReading(vehicle, reservationsByVehicleId.get(key) ?? [])?.mileage,
+        ] as const;
+      }),
+    );
 
     const mine = [
       ...roomRes
@@ -864,6 +860,12 @@ export const submitVehicleFeedback = mutation({
       // Au plus 6 pièces jointes : de quoi illustrer un problème sans
       // transformer le retour en album photo.
       feedbackMedia: args.media?.length ? args.media.slice(0, 6) : undefined,
+    });
+    // Le retour est désormais le relevé le plus récent du véhicule : on le
+    // recopie sur sa fiche pour que Flotte et retours partagent la même base.
+    await ctx.db.patch(reservation.vehicleId, {
+      odometerKm: Math.round(args.mileage),
+      odometerUpdatedAt: new Date().toISOString(),
     });
     await awardEngagementPoints(ctx, {
       clerkId: identity.subject,
@@ -1091,6 +1093,15 @@ export const listVehicleRemarks = query({
       string,
       Array<{ id: string; recordedAt: number; mileage: number }>
     >();
+    // Les relevés faits depuis la fiche véhicule (Flotte, maintenance) font
+    // partie de l'historique au même titre que les retours.
+    for (const vehicle of vehicles) {
+      const reading = vehicleOdometerReading(vehicle);
+      if (!reading) continue;
+      mileageHistoryByVehicleId.set(String(vehicle._id), [
+        { id: `vehicle:${String(vehicle._id)}`, recordedAt: reading.recordedAt, mileage: reading.mileage },
+      ]);
+    }
     for (const reservation of mileageSource) {
       if (typeof reservation.feedbackMileage !== "number" || !Number.isFinite(reservation.feedbackMileage)) {
         continue;

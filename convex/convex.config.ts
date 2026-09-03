@@ -23,6 +23,12 @@ export default defineApp({
     EMAIL_LOGO_ID: v.optional(v.string()),
     OPENAI_API_KEY: v.optional(v.string()),
     OPENAI_REQUEST_ANALYSIS_MODEL: v.optional(v.string()),
+    /**
+     * Modèle de vision qui remplit les fiches matériaux de Bâtire. Réglable
+     * sans redéploiement : c'est le principal levier sur la qualité des
+     * fiches, et il doit pouvoir suivre les sorties d'OpenAI.
+     */
+    BATIRE_ANALYSIS_MODEL: v.optional(v.string()),
     /** OAuth Google (client « Application Web ») — boîte Gmail Vinted de Klyd. */
     GOOGLE_CLIENT_ID: v.optional(v.string()),
     GOOGLE_CLIENT_SECRET: v.optional(v.string()),

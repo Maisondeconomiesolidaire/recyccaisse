@@ -166,13 +166,15 @@ async function createNewRequestNotification(
 
   // Email à l'équipe recyclerie — décalé pour rester sous la limite Resend
   // (2 req/s) avec l'email client. E. Carette est ajouté uniquement pour
-  // les demandes d'aérogommage par l'action d'envoi.
+  // les demandes d'aérogommage par l'action d'envoi, et un dépôt part à
+  // l'équipe de SA recyclerie : d'où le site transmis ici.
   if (request) {
     await ctx.scheduler.runAfter(1200, internal.emails.sendNewRequestToStaff, {
       type: request.type,
       reference: request.reference ?? String(request._id).slice(-6),
       customerName: customerFullName(request.customer),
       article: await emailArticlePreview(ctx, request),
+      site: request.depot?.site ?? request.site,
     });
   }
 }

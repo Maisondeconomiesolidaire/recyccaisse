@@ -12,6 +12,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { requireCrmPermission } from "./lib";
+import { klydeAverageWeightKg } from "./klydeTaxonomy";
 import { bytesToBase64, esc, resendSend } from "./emails";
 import { buildPdf, CONTENT_WIDTH, type PdfColor, type PdfElement } from "./pdf";
 
@@ -38,6 +39,8 @@ export type ReportSale = {
   sku?: string;
   outlet: "klyd" | "mobifrip";
   amount: number;
+  /** Poids de l'article en kg : celui saisi, sinon la moyenne de sa catégorie. */
+  weightKg: number;
   soldAt: number;
 };
 
@@ -68,16 +71,34 @@ export type SalesReport = {
   revenue: number;
   salesCount: number;
   averageBasket: number;
+  /** Poids total vendu sur la période, en kg. */
+  weightKg: number;
   /** CA par enseigne. */
   byOutlet: { klyd: number; mobifrip: number };
   /** CA de chaque mois de l'année, index 0 = janvier (toujours 12 entrées). */
   monthly: number[];
+  /** Poids vendu chaque mois, en kg, aligné sur `monthly`. */
+  monthlyWeight: number[];
   /** Ventes en attente d'encaissement (expédiées, pas encore gagnées). */
   pendingRevenue: number;
   pendingCount: number;
   sales: ReportSale[];
   generatedAt: number;
 };
+
+/**
+ * Poids d'un article vendu, en kg.
+ *
+ * Le poids saisi prime ; à défaut, le barème de la taxonomie donne la moyenne
+ * de la catégorie. Le stock est ancien et beaucoup d'articles n'ont jamais eu
+ * de pesée : sans cette estimation, le total vendu serait très en dessous de
+ * la réalité et illisible pour un bilan de réemploi.
+ */
+function saleWeight(item: Doc<"klydeItems">) {
+  const weight = item.weightKg;
+  if (typeof weight === "number" && weight > 0) return weight;
+  return klydeAverageWeightKg(item.category, item.subcategory, item.subsubcategory);
+}
 
 /** Prix encaissé : le prix réel prime sur le prix affiché. */
 function saleAmount(item: Doc<"klydeItems">) {
@@ -110,6 +131,11 @@ function formatEuro(amount: number) {
   return `${amount.toFixed(2).replace(".", ",")} €`;
 }
 
+/** Poids en kg. Sous le kilo, deux décimales ; au-delà, une suffit. */
+function formatWeight(kg: number) {
+  return `${kg.toFixed(kg < 1 ? 2 : 1).replace(".", ",")} kg`;
+}
+
 function formatDay(ms: number) {
   const { day, month, year } = inParis(ms);
   return `${String(day).padStart(2, "0")}/${String(month + 1).padStart(2, "0")}/${year}`;
@@ -132,9 +158,11 @@ async function buildReport(
     .collect();
 
   const monthly = new Array(12).fill(0) as number[];
+  const monthlyWeight = new Array(12).fill(0) as number[];
   const sales: ReportSale[] = [];
   const byOutlet = { klyd: 0, mobifrip: 0 };
   let revenue = 0;
+  let weightKg = 0;
 
   for (const item of won) {
     const itemOutlet = item.outlet === "mobifrip" ? "mobifrip" : "klyd";
@@ -145,10 +173,13 @@ async function buildReport(
     const when = inParis(soldAt);
     if (when.year !== year) continue;
     const amount = saleAmount(item);
+    const itemWeight = saleWeight(item);
     monthly[when.month] += amount;
+    monthlyWeight[when.month] += itemWeight;
     if (month !== null && when.month !== month) continue;
 
     revenue += amount;
+    weightKg += itemWeight;
     byOutlet[itemOutlet] += amount;
     sales.push({
       id: item._id,
@@ -156,6 +187,7 @@ async function buildReport(
       sku: item.sku,
       outlet: itemOutlet,
       amount,
+      weightKg: itemWeight,
       soldAt,
     });
   }
@@ -182,11 +214,13 @@ async function buildReport(
     revenue: Math.round(revenue * 100) / 100,
     salesCount: sales.length,
     averageBasket: sales.length ? Math.round((revenue / sales.length) * 100) / 100 : 0,
+    weightKg: Math.round(weightKg * 100) / 100,
     byOutlet: {
       klyd: Math.round(byOutlet.klyd * 100) / 100,
       mobifrip: Math.round(byOutlet.mobifrip * 100) / 100,
     },
     monthly: monthly.map((value) => Math.round(value * 100) / 100),
+    monthlyWeight: monthlyWeight.map((value) => Math.round(value * 100) / 100),
     pendingRevenue:
       Math.round(pending.reduce((sum, item) => sum + saleAmount(item), 0) * 100) / 100,
     pendingCount: pending.length,
@@ -238,8 +272,84 @@ export const availableYears = query({
 
 /* ─────────────────────────────── Le PDF ────────────────────────────────── */
 
-/** Nombre de ventes détaillées : au-delà, la page déborde. */
-const MAX_DETAIL_ROWS = 16;
+/**
+ * Détail des ventes, une ligne par article.
+ *
+ * Aucune troncature : le rapport sert de justificatif, il doit porter la
+ * totalité des articles vendus sur la période, quitte à courir sur des
+ * dizaines de pages — `buildPdf` pagine tout seul.
+ */
+function salesTable(report: SalesReport): PdfElement[] {
+  const weightColumn = CONTENT_WIDTH * 0.84;
+  const elements: PdfElement[] = [
+    { kind: "band", height: 24, color: BAND, spaceBefore: 26 },
+    { kind: "text", text: "ARTICLE", size: 8.5, bold: true, color: MUTED, x: 10, spaceBefore: 4 },
+    {
+      kind: "text",
+      text: "POIDS",
+      size: 8.5,
+      bold: true,
+      color: MUTED,
+      width: weightColumn,
+      align: "right",
+      inline: true,
+    },
+    {
+      kind: "text",
+      text: "MONTANT",
+      size: 8.5,
+      bold: true,
+      color: MUTED,
+      width: CONTENT_WIDTH - 10,
+      align: "right",
+      inline: true,
+    },
+  ];
+  if (report.sales.length === 0) {
+    elements.push({
+      kind: "text",
+      text: "Aucune vente sur la période.",
+      size: 10,
+      color: MUTED,
+      x: 10,
+      spaceBefore: 14,
+    });
+    return elements;
+  }
+  report.sales.forEach((sale, index) => {
+    const title = sale.title.length > 52 ? `${sale.title.slice(0, 51)}…` : sale.title;
+    elements.push(
+      {
+        kind: "text",
+        text: `${formatDay(sale.soldAt)}   ${title}`,
+        size: 9.5,
+        color: INK,
+        x: 10,
+        width: CONTENT_WIDTH * 0.7,
+        spaceBefore: index === 0 ? 12 : 3,
+      },
+      {
+        kind: "text",
+        text: formatWeight(sale.weightKg),
+        size: 9.5,
+        color: MUTED,
+        width: weightColumn,
+        align: "right",
+        inline: true,
+      },
+      {
+        kind: "text",
+        text: formatEuro(sale.amount),
+        size: 9.5,
+        color: INK,
+        width: CONTENT_WIDTH - 10,
+        align: "right",
+        inline: true,
+      },
+    );
+  });
+  return elements;
+}
 
 export function reportDocument(report: SalesReport): PdfElement[] {
   const rightHalf = CONTENT_WIDTH * 0.5;
@@ -276,13 +386,14 @@ export function reportDocument(report: SalesReport): PdfElement[] {
     { kind: "rule", spaceBefore: 16, color: HAIRLINE },
   ];
 
-  // Trois chiffres clés, en colonnes.
+  // Quatre chiffres clés, en colonnes.
   const kpis: Array<[string, string]> = [
     ["Chiffre d'affaires", formatEuro(report.revenue)],
     ["Ventes", String(report.salesCount)],
     ["Panier moyen", formatEuro(report.averageBasket)],
+    ["Poids vendu", formatWeight(report.weightKg)],
   ];
-  const columnWidth = CONTENT_WIDTH / 3;
+  const columnWidth = CONTENT_WIDTH / kpis.length;
   kpis.forEach(([label], index) => {
     elements.push({
       kind: "text",
@@ -300,7 +411,9 @@ export function reportDocument(report: SalesReport): PdfElement[] {
     elements.push({
       kind: "text",
       text: value,
-      size: 17,
+      // Quatre colonnes : un corps plus mesuré évite que « 1 234,56 kg » ne
+      // déborde sur la colonne voisine.
+      size: 15,
       bold: true,
       color: INK,
       x: index * columnWidth,
@@ -331,11 +444,25 @@ export function reportDocument(report: SalesReport): PdfElement[] {
     });
   }
 
-  // Vue annuelle : le détail mois par mois. Vue mensuelle : les ventes.
+  // Vue annuelle : d'abord le récapitulatif mois par mois, puis le détail des
+  // ventes — le même que la vue mensuelle, sur l'année entière.
   if (report.month === null) {
+    // Colonne du poids calée bien à gauche du chiffre d'affaires : l'en-tête
+    // « CHIFFRE D'AFFAIRES » est long, il mordrait sur « POIDS ».
+    const weightColumn = CONTENT_WIDTH * 0.62;
     elements.push(
       { kind: "band", height: 24, color: BAND, spaceBefore: 26 },
       { kind: "text", text: "MOIS", size: 8.5, bold: true, color: MUTED, x: 10, spaceBefore: 4 },
+      {
+        kind: "text",
+        text: "POIDS",
+        size: 8.5,
+        bold: true,
+        color: MUTED,
+        width: weightColumn,
+        align: "right",
+        inline: true,
+      },
       {
         kind: "text",
         text: "CHIFFRE D'AFFAIRES",
@@ -359,6 +486,15 @@ export function reportDocument(report: SalesReport): PdfElement[] {
         },
         {
           kind: "text",
+          text: formatWeight(report.monthlyWeight[index]),
+          size: 10,
+          color: MUTED,
+          width: weightColumn,
+          align: "right",
+          inline: true,
+        },
+        {
+          kind: "text",
           text: formatEuro(amount),
           size: 10,
           bold: amount > 0,
@@ -369,69 +505,22 @@ export function reportDocument(report: SalesReport): PdfElement[] {
         },
       );
     });
-  } else {
-    elements.push(
-      { kind: "band", height: 24, color: BAND, spaceBefore: 26 },
-      { kind: "text", text: "ARTICLE", size: 8.5, bold: true, color: MUTED, x: 10, spaceBefore: 4 },
-      {
-        kind: "text",
-        text: "MONTANT",
-        size: 8.5,
-        bold: true,
-        color: MUTED,
-        width: CONTENT_WIDTH - 10,
-        align: "right",
-        inline: true,
-      },
-    );
-    if (report.sales.length === 0) {
-      elements.push({
-        kind: "text",
-        text: "Aucune vente sur la période.",
-        size: 10,
-        color: MUTED,
-        x: 10,
-        spaceBefore: 14,
-      });
-    }
-    report.sales.slice(0, MAX_DETAIL_ROWS).forEach((sale, index) => {
-      const title = sale.title.length > 52 ? `${sale.title.slice(0, 51)}…` : sale.title;
-      elements.push(
-        {
-          kind: "text",
-          text: `${formatDay(sale.soldAt)}   ${title}`,
-          size: 9.5,
-          color: INK,
-          x: 10,
-          width: CONTENT_WIDTH * 0.75,
-          spaceBefore: index === 0 ? 12 : 3,
-        },
-        {
-          kind: "text",
-          text: formatEuro(sale.amount),
-          size: 9.5,
-          color: INK,
-          width: CONTENT_WIDTH - 10,
-          align: "right",
-          inline: true,
-        },
-      );
-    });
-    if (report.sales.length > MAX_DETAIL_ROWS) {
-      elements.push({
-        kind: "text",
-        text: `… et ${report.sales.length - MAX_DETAIL_ROWS} autres ventes.`,
-        size: 9,
-        color: MUTED,
-        x: 10,
-        spaceBefore: 8,
-      });
-    }
   }
+  elements.push(...salesTable(report));
 
   elements.push(
     { kind: "rule", spaceBefore: 14, color: HAIRLINE },
     { kind: "text", text: "Total", size: 12, bold: true, color: INK, x: 10, spaceBefore: 8 },
+    {
+      kind: "text",
+      text: formatWeight(report.weightKg),
+      size: 11,
+      bold: true,
+      color: MUTED,
+      width: CONTENT_WIDTH * 0.84,
+      align: "right",
+      inline: true,
+    },
     {
       kind: "text",
       text: formatEuro(report.revenue),
@@ -475,6 +564,7 @@ function reportEmailHtml(report: SalesReport, message: string) {
         ${row("Chiffre d'affaires", formatEuro(report.revenue))}
         ${row("Ventes", String(report.salesCount))}
         ${row("Panier moyen", formatEuro(report.averageBasket))}
+        ${row("Poids vendu", formatWeight(report.weightKg))}
       </table>
       <p style="margin:18px 0 0;font-size:12px;color:#6b7280">Le rapport détaillé est joint à cet email au format PDF.</p>
     </div>
@@ -510,6 +600,7 @@ export const emailDraft = query({
       label: report.label,
       revenue: report.revenue,
       salesCount: report.salesCount,
+      weightKg: report.weightKg,
     };
   },
 });
