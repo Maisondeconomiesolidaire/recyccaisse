@@ -103,6 +103,13 @@ croisent).
   logo, liens légaux, lien de retour) et, seulement si sa palette
   `--color-brand-*` ne suffit pas, les variables `--auth-page-bg`,
   `--auth-circle`, `--auth-shadow`, `--auth-accent` dans son `:root`.
+- **Le portail est un écran PLEINE PAGE**, servi par une route dédiée
+  (`/connexion`, `/inscription`) montée HORS du shell de l'app, ou par l'état
+  déconnecté de la racine. Ne le monte jamais dans une carte ni dans un layout
+  à en-tête : il se replie alors en version étroite au milieu d'un grand écran
+  (il se dimensionne sur son conteneur, pas sur le viewport). Les pages
+  protégées **redirigent** vers `/connexion?redirect_url=…` au lieu de
+  l'afficher sur place.
 - Le composant est **volontairement sans react-router** (`<a>` et
   `window.location`) : Klyde n'a pas de routeur et doit pouvoir l'utiliser tel
   quel. N'y réintroduis pas `Link`/`useNavigate`.
